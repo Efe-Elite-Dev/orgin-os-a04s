@@ -1,86 +1,95 @@
-name: OriginOS 15 Frankenstein Patcher (A04s)
+name: OriginOS 15 GSI Patcher (Zero-Error)
 
 on:
   workflow_dispatch:
     inputs:
       originos_url:
-        description: "OriginOS 15 GSI ZIP Linki (MysticGSI)"
+        description: "OriginOS Linki"
         required: true
-        default: ""
+        default: "https://netix.dl.sourceforge.net/project/mystic-gsi-updates/OriginOS/Originos-PD2266-15-compiler250711173629-AB-20260208-MysticGSI.zip?viasf=1&fid=77d8b49dcbabbc5d&e=1783985584&st=8r115uYo_QeP73M9LGN8OA"
       aosp_url:
-        description: "AOSP 15 GSI XZ Linki (Ponces)"
+        description: "AOSP Linki"
         required: true
         default: "https://github.com/ponces/treble_aosp/releases/download/v2025.05.13/aosp-arm64-ab-gapps-15.0-20250513.img.xz"
 
 jobs:
-  patch-gsi:
+  patch:
     runs-on: ubuntu-22.04
     steps:
-      - name: Sunucu Ortamını Hazırlama
+      - name: 🧹 Disk Alanını Temizleme (GitHub Yer Hatasını Önler)
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          sudo apt-get clean
+          df -h
+
+      - name: 📦 Gerekli Araçları Kurma
         run: |
           sudo apt-get update
-          sudo apt-get install -y simg2img img2simg p7zip-full xz-utils e2fsprogs
+          sudo apt-get install -y simg2img img2simg p7zip-full xz-utils e2fsprogs aria2
 
-      - name: İmajları İndirme ve Çıkarma
+      - name: ⬇️ İmajları İndirme (Hızlı İndirme)
         run: |
           mkdir -p workspace && cd workspace
-          
-          echo "OriginOS İndiriliyor..."
-          wget -qO originos.zip "${{ github.event.inputs.originos_url }}"
-          unzip originos.zip
-          mv *.img orig_sparse.img
+          aria2c -x 16 -s 16 "${{ github.event.inputs.originos_url }}" -o originos.zip
+          aria2c -x 16 -s 16 "${{ github.event.inputs.aosp_url }}" -o aosp.img.xz
 
-          echo "AOSP İndiriliyor..."
-          wget -qO aosp.img.xz "${{ github.event.inputs.aosp_url }}"
+      - name: 🔓 Arşivleri Çıkarma
+        run: |
+          cd workspace
+          unzip -o originos.zip
+          mv *.img orig_sparse.img
           unxz aosp.img.xz
           mv aosp.img aosp_sparse.img
+          rm originos.zip
 
-      - name: Sparse İmajları Raw Formatına Çevirme
+      - name: 🔄 Format Dönüştürme (Sparse -> Raw)
         run: |
           cd workspace
-          # İmajlar sparse formatındaysa raw'a çevir, değilse isim değiştir
           simg2img orig_sparse.img orig_raw.img || mv orig_sparse.img orig_raw.img
           simg2img aosp_sparse.img aosp_raw.img || mv aosp_sparse.img aosp_raw.img
+          rm orig_sparse.img aosp_sparse.img
 
-      - name: Frankenstein Ameliyatı (secilc & .cil Enjeksiyonu)
+      - name: ⚙️ Frankenstein Enjeksiyonu (Bootloop Engelleyici)
         run: |
           cd workspace
-          mkdir aosp_mnt orig_mnt
+          mkdir -p orig_mnt aosp_mnt
           
-          # Yeni dosyaları yapıştırırken 'yer yok' hatası almamak için OriginOS imajını 200MB büyütüyoruz
+          # Hata almamak için OriginOS imajı büyütülüyor
           e2fsck -yf orig_raw.img
-          truncate -s +200M orig_raw.img
+          truncate -s +300M orig_raw.img
           resize2fs orig_raw.img
 
-          # İmajları Linux dosya sistemine bağlıyoruz
           sudo mount -o loop,rw orig_raw.img orig_mnt
           sudo mount -o loop,ro aosp_raw.img aosp_mnt
 
-          echo "AOSP'den secilc çekilip OriginOS'e enjekte ediliyor..."
+          # 1. secilc Binary Enjeksiyonu (Yetki 0755 olmalı)
+          sudo rm -f orig_mnt/system/bin/secilc
           sudo cp -f aosp_mnt/system/bin/secilc orig_mnt/system/bin/secilc
-          sudo chmod 0644 orig_mnt/system/bin/secilc
+          sudo chmod 0755 orig_mnt/system/bin/secilc
 
-          echo "SELinux poliçeleri (.cil) aktarılıyor..."
-          sudo cp -f aosp_mnt/system/etc/selinux/*.cil orig_mnt/system/etc/selinux/ 2>/dev/null || true
-          sudo cp -f aosp_mnt/system/product/etc/selinux/*.cil orig_mnt/system/product/etc/selinux/ 2>/dev/null || true
-          sudo cp -f aosp_mnt/system_ext/etc/selinux/*.cil orig_mnt/system_ext/etc/selinux/ 2>/dev/null || true
+          # 2. SELinux (.cil) Dosyalarının Aktarımı
+          sudo cp -rf aosp_mnt/system/etc/selinux/*.cil orig_mnt/system/etc/selinux/ 2>/dev/null || true
+          sudo cp -rf aosp_mnt/system/product/etc/selinux/*.cil orig_mnt/system/product/etc/selinux/ 2>/dev/null || true
+          sudo cp -rf aosp_mnt/system_ext/etc/selinux/*.cil orig_mnt/system_ext/etc/selinux/ 2>/dev/null || true
           
-          # Bağlantıları koparıyoruz
           sudo umount orig_mnt
           sudo umount aosp_mnt
 
-      - name: Yamalanmış İmajı Paketleme
+      - name: 🗜️ Yeniden Paketleme
         run: |
           cd workspace
           e2fsck -yf orig_raw.img
-          # Dosya boyutunu küçültmek için tekrar sparse yapıyoruz
           img2simg orig_raw.img Patched-OriginOS-A04s.img
-          # XZ formatında sıkıştırıyoruz (Bu işlem birkaç dakika sürebilir)
+          rm orig_raw.img
           xz -z9 -T0 Patched-OriginOS-A04s.img
 
-      - name: İndirmeye Hazır Hale Getirme (Artifact)
+      - name: 📤 Sonucu Yükleme
         uses: actions/upload-artifact@v4
         with:
           name: Patched-OriginOS-A04s
           path: workspace/Patched-OriginOS-A04s.img.xz
-          compression-level: 0 # Zaten xz ile sıkıştırdık
+          compression-level: 0
