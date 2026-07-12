@@ -44,14 +44,16 @@ jobs:
           mv *.img orig_sparse.img
           unxz aosp.img.xz
           mv aosp.img aosp_sparse.img
-          rm originos.zip
+          rm -f originos.zip
 
       - name: 🔄 Format Dönüştürme (Sparse -> Raw)
         run: |
           cd workspace
+          # Hata verirse yeniden adlandırıp yola devam eder
           simg2img orig_sparse.img orig_raw.img || mv orig_sparse.img orig_raw.img
           simg2img aosp_sparse.img aosp_raw.img || mv aosp_sparse.img aosp_raw.img
-          rm orig_sparse.img aosp_sparse.img
+          # Dosyalar bulunamazsa sistemi çökertmemesi için -f eklendi
+          rm -f orig_sparse.img aosp_sparse.img
 
       - name: ⚙️ Frankenstein Enjeksiyonu (Bootloop Engelleyici)
         run: |
@@ -84,7 +86,7 @@ jobs:
           cd workspace
           e2fsck -yf orig_raw.img
           img2simg orig_raw.img Patched-OriginOS-A04s.img
-          rm orig_raw.img
+          rm -f orig_raw.img
           xz -z9 -T0 Patched-OriginOS-A04s.img
 
       - name: 📤 Sonucu Yükleme
