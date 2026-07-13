@@ -1,4 +1,4 @@
-name: OriginOS 15 GSI Patcher (Zero-Error)
+name: OriginOS 15 GSI Patcher & Releaser
 
 on:
   workflow_dispatch:
@@ -12,11 +12,15 @@ on:
         required: true
         default: "https://github.com/ponces/treble_aosp/releases/download/v2025.05.13/aosp-arm64-ab-gapps-15.0-20250513.img.xz"
 
+# Release oluşturabilmesi için GitHub deposuna yazma yetkisi veriyoruz
+permissions:
+  contents: write
+
 jobs:
   patch:
     runs-on: ubuntu-22.04
     steps:
-      - name: 🧹 Disk Alanını Temizleme (GitHub Yer Hatasını Önler)
+      - name: 🧹 Disk Alanını Temizleme
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
@@ -31,7 +35,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y simg2img img2simg p7zip-full xz-utils e2fsprogs aria2
 
-      - name: ⬇️ İmajları İndirme (Hızlı İndirme)
+      - name: ⬇️ İmajları İndirme
         run: |
           mkdir -p workspace && cd workspace
           aria2c -x 16 -s 16 "${{ github.event.inputs.originos_url }}" -o originos.zip
@@ -49,18 +53,15 @@ jobs:
       - name: 🔄 Format Dönüştürme (Sparse -> Raw)
         run: |
           cd workspace
-          # Hata verirse yeniden adlandırıp yola devam eder
           simg2img orig_sparse.img orig_raw.img || mv orig_sparse.img orig_raw.img
           simg2img aosp_sparse.img aosp_raw.img || mv aosp_sparse.img aosp_raw.img
-          # Dosyalar bulunamazsa sistemi çökertmemesi için -f eklendi
           rm -f orig_sparse.img aosp_sparse.img
 
-      - name: ⚙️ Frankenstein Enjeksiyonu (Bootloop Engelleyici)
+      - name: ⚙️ Frankenstein Enjeksiyonu
         run: |
           cd workspace
           mkdir -p orig_mnt aosp_mnt
           
-          # Hata almamak için OriginOS imajı büyütülüyor
           e2fsck -yf orig_raw.img
           truncate -s +300M orig_raw.img
           resize2fs orig_raw.img
@@ -68,12 +69,10 @@ jobs:
           sudo mount -o loop,rw orig_raw.img orig_mnt
           sudo mount -o loop,ro aosp_raw.img aosp_mnt
 
-          # 1. secilc Binary Enjeksiyonu (Yetki 0755 olmalı)
           sudo rm -f orig_mnt/system/bin/secilc
           sudo cp -f aosp_mnt/system/bin/secilc orig_mnt/system/bin/secilc
           sudo chmod 0755 orig_mnt/system/bin/secilc
 
-          # 2. SELinux (.cil) Dosyalarının Aktarımı
           sudo cp -rf aosp_mnt/system/etc/selinux/*.cil orig_mnt/system/etc/selinux/ 2>/dev/null || true
           sudo cp -rf aosp_mnt/system/product/etc/selinux/*.cil orig_mnt/system/product/etc/selinux/ 2>/dev/null || true
           sudo cp -rf aosp_mnt/system_ext/etc/selinux/*.cil orig_mnt/system_ext/etc/selinux/ 2>/dev/null || true
@@ -89,9 +88,19 @@ jobs:
           rm -f orig_raw.img
           xz -z9 -T0 Patched-OriginOS-A04s.img
 
-      - name: 📤 Sonucu Yükleme
-        uses: actions/upload-artifact@v4
+      - name: 🚀 GitHub Releases'e Yükleme
+        uses: softprops/action-gh-release@v2
         with:
-          name: Patched-OriginOS-A04s
-          path: workspace/Patched-OriginOS-A04s.img.xz
-          compression-level: 0
+          name: "Patched OriginOS 15 (A04s)"
+          tag_name: "originos-${{ github.run_number }}"
+          body: |
+            ### OriginOS 15 - Galaxy A04s (SM-A047F)
+            * **Durum:** `secilc` ve SELinux `.cil` yamaları uygulandı. (Bootloop Engellendi)
+            * **Format:** GSI (Sparse Image, XZ ile sıkıştırılmış)
+            
+            **Uyarılar:**
+            1. ZRAM devre dışı bırakılmış Permissive Kernel ile kullanılmalıdır.
+            2. Cihaz boot ederken SIM ve MicroSD kartı çıkarın.
+          files: workspace/Patched-OriginOS-A04s.img.xz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
