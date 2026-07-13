@@ -1,4 +1,4 @@
-name: OriginOS 15 GSI Patcher & Releaser
+name: OriginOS 15 GSI Patcher (Zero-Error)
 
 on:
   workflow_dispatch:
@@ -11,10 +11,6 @@ on:
         description: "AOSP Linki"
         required: true
         default: "https://github.com/ponces/treble_aosp/releases/download/v2025.05.13/aosp-arm64-ab-gapps-15.0-20250513.img.xz"
-
-# Release oluşturabilmesi için GitHub deposuna yazma yetkisi veriyoruz
-permissions:
-  contents: write
 
 jobs:
   patch:
@@ -88,19 +84,9 @@ jobs:
           rm -f orig_raw.img
           xz -z9 -T0 Patched-OriginOS-A04s.img
 
-      - name: 🚀 GitHub Releases'e Yükleme
-        uses: softprops/action-gh-release@v2
+      - name: 📤 Artifact Olarak Yükleme
+        uses: actions/upload-artifact@v4
         with:
-          name: "Patched OriginOS 15 (A04s)"
-          tag_name: "originos-${{ github.run_number }}"
-          body: |
-            ### OriginOS 15 - Galaxy A04s (SM-A047F)
-            * **Durum:** `secilc` ve SELinux `.cil` yamaları uygulandı. (Bootloop Engellendi)
-            * **Format:** GSI (Sparse Image, XZ ile sıkıştırılmış)
-            
-            **Uyarılar:**
-            1. ZRAM devre dışı bırakılmış Permissive Kernel ile kullanılmalıdır.
-            2. Cihaz boot ederken SIM ve MicroSD kartı çıkarın.
-          files: workspace/Patched-OriginOS-A04s.img.xz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: Patched-OriginOS-A04s
+          path: workspace/Patched-OriginOS-A04s.img.xz
+          compression-level: 0
