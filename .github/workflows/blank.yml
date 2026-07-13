@@ -1,4 +1,4 @@
-name: OriginOS 15 GSI Patcher (Zero-Error)
+name: OriginOS 15 GSI Patcher & Releaser
 
 on:
   workflow_dispatch:
@@ -12,6 +12,9 @@ on:
         required: true
         default: "https://github.com/ponces/treble_aosp/releases/download/v2025.05.13/aosp-arm64-ab-gapps-15.0-20250513.img.xz"
 
+permissions:
+  contents: write
+
 jobs:
   patch:
     runs-on: ubuntu-22.04
@@ -24,7 +27,6 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
           sudo apt-get clean
-          df -h
 
       - name: 📦 Gerekli Araçları Kurma
         run: |
@@ -76,17 +78,32 @@ jobs:
           sudo umount orig_mnt
           sudo umount aosp_mnt
 
-      - name: 🗜️ Yeniden Paketleme
+      - name: 🗜️ Yeniden Paketleme ve Bölme
         run: |
           cd workspace
           e2fsck -yf orig_raw.img
           img2simg orig_raw.img Patched-OriginOS-A04s.img
           rm -f orig_raw.img
+          
+          # 1. Aşama: .img.xz olarak en yüksek oranda sıkıştır
           xz -z9 -T0 Patched-OriginOS-A04s.img
+          
+          # 2. Aşama: GitHub 2GB sınırına takılmasın diye 1.9GB parçalara böl (.001, .002 şeklinde)
+          split -b 1900M Patched-OriginOS-A04s.img.xz Patched-OriginOS-A04s.img.xz.
+          
+          # Orijinal büyük .xz'yi sil (Upload ederken sorun çıkmasın)
+          rm Patched-OriginOS-A04s.img.xz
 
-      - name: 📤 Artifact Olarak Yükleme
-        uses: actions/upload-artifact@v4
+      - name: 🚀 GitHub Releases'e Yükleme
+        uses: softprops/action-gh-release@v2
         with:
-          name: Patched-OriginOS-A04s
-          path: workspace/Patched-OriginOS-A04s.img.xz
-          compression-level: 0
+          name: "Patched OriginOS 15 (A04s)"
+          tag_name: "originos-${{ github.run_number }}"
+          body: |
+            ### OriginOS 15 - Galaxy A04s (SM-A047F)
+            * **Durum:** `secilc` ve SELinux `.cil` yamaları uygulandı. (Bootloop Engellendi)
+            * **Birleştirme:** Dosyalar 2GB sınırını aşmamak için bölünmüştür. İndirdikten sonra Windows'ta cmd'ye şunu yazın:
+              `copy /b Patched-OriginOS-A04s.img.xz.* Patched-OriginOS-A04s.img.xz`
+          files: workspace/Patched-OriginOS-A04s.img.xz.*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
