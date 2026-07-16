@@ -36,10 +36,11 @@ jobs:
           mkdir mnt_aosp
           sudo mount -o ro,loop aosp.img mnt_aosp/
           if [ -f mnt_aosp/system/bin/secilc ]; then
-            cp mnt_aosp/system/bin/secilc ./secilc
+            sudo cp mnt_aosp/system/bin/secilc ./secilc
           elif [ -f mnt_aosp/system/system/bin/secilc ]; then
-            cp mnt_aosp/system/system/bin/secilc ./secilc
+            sudo cp mnt_aosp/system/system/bin/secilc ./secilc
           fi
+          sudo chmod 777 ./secilc || true
           sudo umount mnt_aosp/
           rm -rf mnt_aosp aosp.img
 
