@@ -1,3 +1,29 @@
+name: Inject Secilc to GSI
+
+on:
+workflow_dispatch:
+inputs:
+rom_url:
+description: 'OriginOS .zip dosyasının Direkt İndirme Linki'
+required: true
+default: 'https://netix.dl.sourceforge.net/project/mystic-gsi-updates/OriginOS/Originos-PD2266-15-compiler250711173629-AB-20260208-MysticGSI.zip?viasf=1&fid=77d8b49dcbabbc5d&e=1783985584&st=8r115uYo_QeP73M9LGN8OA'
+aosp_url:
+description: 'Ponces AOSP GSI .img.xz Linki'
+required: true
+default: 'https://github.com/ponces/treble_aosp/releases/download/v2025.05.13/aosp-arm64-ab-gapps-15.0-20250513.img.xz'
+
+jobs:
+patch_rom:
+runs-on: ubuntu-latest
+steps:
+- name: 10 GB İmaj İçin GitHub Sunucusunda Yer Aç
+run: |
+sudo rm -rf /usr/share/dotnet
+sudo rm -rf /usr/local/lib/android
+sudo rm -rf /opt/ghc
+sudo rm -rf "/usr/local/share/boost"
+sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
   - name: Dosyaları İndir ve Çıkart
     run: |
       echo "OriginOS arşivi (ZIP) indiriliyor..."
