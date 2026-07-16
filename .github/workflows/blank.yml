@@ -1,109 +1,62 @@
-name: OriginOS 15 GSI Patcher & Releaser
-
-on:
-  workflow_dispatch:
-    inputs:
-      originos_url:
-        description: "OriginOS Linki"
-        required: true
-        default: "https://netix.dl.sourceforge.net/project/mystic-gsi-updates/OriginOS/Originos-PD2266-15-compiler250711173629-AB-20260208-MysticGSI.zip?viasf=1&fid=77d8b49dcbabbc5d&e=1783985584&st=8r115uYo_QeP73M9LGN8OA"
-      aosp_url:
-        description: "AOSP Linki"
-        required: true
-        default: "https://github.com/ponces/treble_aosp/releases/download/v2025.05.13/aosp-arm64-ab-gapps-15.0-20250513.img.xz"
-
-permissions:
-  contents: write
-
-jobs:
-  patch:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: 🧹 Disk Alanını Temizleme
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
-          sudo apt-get clean
-
-      - name: 📦 Gerekli Araçları Kurma
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y simg2img img2simg p7zip-full xz-utils e2fsprogs aria2
-
-      - name: ⬇️ İmajları İndirme
-        run: |
-          mkdir -p workspace && cd workspace
-          aria2c -x 16 -s 16 "${{ github.event.inputs.originos_url }}" -o originos.zip
-          aria2c -x 16 -s 16 "${{ github.event.inputs.aosp_url }}" -o aosp.img.xz
-
-      - name: 🔓 Arşivleri Çıkarma
-        run: |
-          cd workspace
-          unzip -o originos.zip
-          mv *.img orig_sparse.img
-          unxz aosp.img.xz
-          mv aosp.img aosp_sparse.img
-          rm -f originos.zip
-
-      - name: 🔄 Format Dönüştürme (Sparse -> Raw)
-        run: |
-          cd workspace
-          simg2img orig_sparse.img orig_raw.img || mv orig_sparse.img orig_raw.img
-          simg2img aosp_sparse.img aosp_raw.img || mv aosp_sparse.img aosp_raw.img
-          rm -f orig_sparse.img aosp_sparse.img
-
-      - name: ⚙️ Frankenstein Enjeksiyonu
-        run: |
-          cd workspace
-          mkdir -p orig_mnt aosp_mnt
-          
-          e2fsck -yf orig_raw.img
-          truncate -s +300M orig_raw.img
-          resize2fs orig_raw.img
-
-          sudo mount -o loop,rw orig_raw.img orig_mnt
-          sudo mount -o loop,ro aosp_raw.img aosp_mnt
-
-          sudo rm -f orig_mnt/system/bin/secilc
-          sudo cp -f aosp_mnt/system/bin/secilc orig_mnt/system/bin/secilc
-          sudo chmod 0755 orig_mnt/system/bin/secilc
-
-          sudo cp -rf aosp_mnt/system/etc/selinux/*.cil orig_mnt/system/etc/selinux/ 2>/dev/null || true
-          sudo cp -rf aosp_mnt/system/product/etc/selinux/*.cil orig_mnt/system/product/etc/selinux/ 2>/dev/null || true
-          sudo cp -rf aosp_mnt/system_ext/etc/selinux/*.cil orig_mnt/system_ext/etc/selinux/ 2>/dev/null || true
-          
-          sudo umount orig_mnt
-          sudo umount aosp_mnt
-
-      - name: 🗜️ Yeniden Paketleme ve Bölme
-        run: |
-          cd workspace
-          e2fsck -yf orig_raw.img
-          img2simg orig_raw.img Patched-OriginOS-A04s.img
-          rm -f orig_raw.img
-          
-          # 1. Aşama: .img.xz olarak en yüksek oranda sıkıştır
-          xz -z9 -T0 Patched-OriginOS-A04s.img
-          
-          # 2. Aşama: GitHub 2GB sınırına takılmasın diye 1.9GB parçalara böl (.001, .002 şeklinde)
-          split -b 1900M Patched-OriginOS-A04s.img.xz Patched-OriginOS-A04s.img.xz.
-          
-          # Orijinal büyük .xz'yi sil (Upload ederken sorun çıkmasın)
-          rm Patched-OriginOS-A04s.img.xz
-
-      - name: 🚀 GitHub Releases'e Yükleme
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "Patched OriginOS 15 (A04s)"
-          tag_name: "originos-${{ github.run_number }}"
-          body: |
-            ### OriginOS 15 - Galaxy A04s (SM-A047F)
-            * **Durum:** `secilc` ve SELinux `.cil` yamaları uygulandı. (Bootloop Engellendi)
-            * **Birleştirme:** Dosyalar 2GB sınırını aşmamak için bölünmüştür. İndirdikten sonra Windows'ta cmd'ye şunu yazın:
-              `copy /b Patched-OriginOS-A04s.img.xz.* Patched-OriginOS-A04s.img.xz`
-          files: workspace/Patched-OriginOS-A04s.img.xz.*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+ - name: Dosyaları İndir ve Çıkart
+    run: |
+      echo "OriginOS arşivi (ZIP) indiriliyor..."
+      wget -q -O originos.zip "${{ github.event.inputs.rom_url }}"
+      
+      echo "OriginOS ZIP'ten çıkartılıyor..."
+      unzip -q originos.zip
+      rm originos.zip
+      mv *.img os.img
+      
+      echo "AOSP GSI (xz) indiriliyor..."
+      wget -q -O aosp.img.xz "${{ github.event.inputs.aosp_url }}"
+      
+  - name: AOSP'den Secilc Çıkart (Donor Ameliyatı)
+    run: |
+      echo "AOSP xz arşivinden çıkartılıyor..."
+      unxz aosp.img.xz
+      
+      mkdir mnt_aosp
+      echo "AOSP imajı mount ediliyor..."
+      sudo mount -o ro,loop aosp.img mnt_aosp/
+      
+      echo "secilc dosyası aranıyor ve kopyalanıyor..."
+      if [ -f mnt_aosp/system/bin/secilc ]; then
+        cp mnt_aosp/system/bin/secilc ./secilc
+      elif [ -f mnt_aosp/system/system/bin/secilc ]; then
+        cp mnt_aosp/system/system/bin/secilc ./secilc
+      else
+        echo "HATA: secilc dosyası AOSP imajında bulunamadı!"
+        exit 1
+      fi
+      
+      echo "AOSP imajı kapatılıyor ve siliniyor (Yer açmak için)..."
+      sudo umount mnt_aosp/
+      rm -rf aosp.img mnt_aosp
+      
+  - name: Açık Kalp Ameliyatı (OriginOS'a Inject İşlemi)
+    run: |
+      mkdir mnt
+      echo "OriginOS Linux sistemine bağlanıyor (Mount)..."
+      sudo mount -o rw,loop os.img mnt/
+      
+      echo "secilc dosyası OriginOS içine enjekte ediliyor..."
+      sudo cp secilc mnt/system/bin/secilc || sudo cp secilc mnt/system/system/bin/secilc
+      
+      echo "Linux Yetkileri (Permissions) ayarlanıyor..."
+      sudo chmod 755 mnt/system/bin/secilc || sudo chmod 755 mnt/system/system/bin/secilc
+      sudo chown root:root mnt/system/bin/secilc || sudo chown root:root mnt/system/system/bin/secilc
+      
+      echo "OriginOS imajı güvenle kapatılıyor..."
+      sudo umount mnt/
+      
+  - name: Dosyayı Sıkıştır (İndirmesi Kolay Olsun Diye)
+    run: |
+      echo "Yamalanmış imaj ZIP'leniyor..."
+      tar -czvf Patched_OriginOS.tar.gz os.img
+      
+  - name: Sonucu GitHub'a Yükle (Artifact)
+    uses: actions/upload-artifact@v4
+    with:
+      name: Yamali-OriginOS
+      path: Patched_OriginOS.tar.gz
