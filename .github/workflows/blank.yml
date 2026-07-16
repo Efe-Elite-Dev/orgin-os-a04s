@@ -1,4 +1,4 @@
- - name: Dosyaları İndir ve Çıkart
+  - name: Dosyaları İndir ve Çıkart
     run: |
       echo "OriginOS arşivi (ZIP) indiriliyor..."
       wget -q -O originos.zip "${{ github.event.inputs.rom_url }}"
