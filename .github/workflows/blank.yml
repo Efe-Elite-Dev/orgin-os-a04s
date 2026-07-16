@@ -1,88 +1,72 @@
 name: Inject Secilc to GSI
 
 on:
-workflow_dispatch:
-inputs:
-rom_url:
-description: 'OriginOS .zip dosyasının Direkt İndirme Linki'
-required: true
-default: 'https://netix.dl.sourceforge.net/project/mystic-gsi-updates/OriginOS/Originos-PD2266-15-compiler250711173629-AB-20260208-MysticGSI.zip?viasf=1&fid=77d8b49dcbabbc5d&e=1783985584&st=8r115uYo_QeP73M9LGN8OA'
-aosp_url:
-description: 'Ponces AOSP GSI .img.xz Linki'
-required: true
-default: 'https://github.com/ponces/treble_aosp/releases/download/v2025.05.13/aosp-arm64-ab-gapps-15.0-20250513.img.xz'
+  workflow_dispatch:
+    inputs:
+      rom_url:
+        description: 'OriginOS ZIP Linki'
+        required: true
+        default: 'https://netix.dl.sourceforge.net/project/mystic-gsi-updates/OriginOS/Originos-PD2266-15-compiler250711173629-AB-20260208-MysticGSI.zip?viasf=1&fid=77d8b49dcbabbc5d&e=1783985584&st=8r115uYo_QeP73M9LGN8OA'
+      aosp_url:
+        description: 'AOSP GSI xz Linki'
+        required: true
+        default: 'https://github.com/ponces/treble_aosp/releases/download/v2025.05.13/aosp-arm64-ab-gapps-15.0-20250513.img.xz'
 
 jobs:
-patch_rom:
-runs-on: ubuntu-latest
-steps:
-- name: 10 GB İmaj İçin GitHub Sunucusunda Yer Aç
-run: |
-sudo rm -rf /usr/share/dotnet
-sudo rm -rf /usr/local/lib/android
-sudo rm -rf /opt/ghc
-sudo rm -rf "/usr/local/share/boost"
-sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+  patch-gsi:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Diski Genislet
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          
+      - name: Dosyalari Indir ve Cikart
+        run: |
+          wget -q -O originos.zip "${{ github.event.inputs.rom_url }}"
+          unzip -q originos.zip
+          rm originos.zip
+          mv *.img os.img
+          wget -q -O aosp.img.xz "${{ github.event.inputs.aosp_url }}"
+          
+      - name: AOSPden Secilc Cikart
+        run: |
+          unxz aosp.img.xz
+          mkdir mnt_aosp
+          sudo mount -o ro,loop aosp.img mnt_aosp/
+          if [ -f mnt_aosp/system/bin/secilc ]; then
+            cp mnt_aosp/system/bin/secilc ./secilc
+          elif [ -f mnt_aosp/system/system/bin/secilc ]; then
+            cp mnt_aosp/system/system/bin/secilc ./secilc
+          fi
+          sudo umount mnt_aosp/
+          rm -rf mnt_aosp aosp.img
 
-  - name: Dosyaları İndir ve Çıkart
-    run: |
-      echo "OriginOS arşivi (ZIP) indiriliyor..."
-      wget -q -O originos.zip "${{ github.event.inputs.rom_url }}"
-      
-      echo "OriginOS ZIP'ten çıkartılıyor..."
-      unzip -q originos.zip
-      rm originos.zip
-      mv *.img os.img
-      
-      echo "AOSP GSI (xz) indiriliyor..."
-      wget -q -O aosp.img.xz "${{ github.event.inputs.aosp_url }}"
-      
-  - name: AOSP'den Secilc Çıkart (Donor Ameliyatı)
-    run: |
-      echo "AOSP xz arşivinden çıkartılıyor..."
-      unxz aosp.img.xz
-      
-      mkdir mnt_aosp
-      echo "AOSP imajı mount ediliyor..."
-      sudo mount -o ro,loop aosp.img mnt_aosp/
-      
-      echo "secilc dosyası aranıyor ve kopyalanıyor..."
-      if [ -f mnt_aosp/system/bin/secilc ]; then
-        cp mnt_aosp/system/bin/secilc ./secilc
-      elif [ -f mnt_aosp/system/system/bin/secilc ]; then
-        cp mnt_aosp/system/system/bin/secilc ./secilc
-      else
-        echo "HATA: secilc dosyası AOSP imajında bulunamadı!"
-        exit 1
-      fi
-      
-      echo "AOSP imajı kapatılıyor ve siliniyor (Yer açmak için)..."
-      sudo umount mnt_aosp/
-      rm -rf aosp.img mnt_aosp
-      
-  - name: Açık Kalp Ameliyatı (OriginOS'a Inject İşlemi)
-    run: |
-      mkdir mnt
-      echo "OriginOS Linux sistemine bağlanıyor (Mount)..."
-      sudo mount -o rw,loop os.img mnt/
-      
-      echo "secilc dosyası OriginOS içine enjekte ediliyor..."
-      sudo cp secilc mnt/system/bin/secilc || sudo cp secilc mnt/system/system/bin/secilc
-      
-      echo "Linux Yetkileri (Permissions) ayarlanıyor..."
-      sudo chmod 755 mnt/system/bin/secilc || sudo chmod 755 mnt/system/system/bin/secilc
-      sudo chown root:root mnt/system/bin/secilc || sudo chown root:root mnt/system/system/bin/secilc
-      
-      echo "OriginOS imajı güvenle kapatılıyor..."
-      sudo umount mnt/
-      
-  - name: Dosyayı Sıkıştır (İndirmesi Kolay Olsun Diye)
-    run: |
-      echo "Yamalanmış imaj ZIP'leniyor..."
-      tar -czvf Patched_OriginOS.tar.gz os.img
-      
-  - name: Sonucu GitHub'a Yükle (Artifact)
-    uses: actions/upload-artifact@v4
-    with:
-      name: Yamali-OriginOS
-      path: Patched_OriginOS.tar.gz
+      - name: OriginOS Imajina Secilc Enjekte Et
+        run: |
+          mkdir mnt_os
+          sudo e2fsck -y -f os.img || true
+          dd if=/dev/zero bs=1M count=50 >> os.img
+          sudo resize2fs os.img
+          sudo mount -o rw,loop os.img mnt_os/
+          if [ -d mnt_os/system/system/bin ]; then
+            sudo cp ./secilc mnt_os/system/system/bin/secilc
+            sudo chmod 755 mnt_os/system/system/bin/secilc
+          elif [ -d mnt_os/system/bin ]; then
+            sudo cp ./secilc mnt_os/system/bin/secilc
+            sudo chmod 755 mnt_os/system/bin/secilc
+          fi
+          sudo umount mnt_os/
+          rm -rf mnt_os secilc
+
+      - name: Yamalanmis Imaji Sikistir
+        run: |
+          tar -czvf Yamali-OriginOS.tar.gz os.img
+          rm os.img
+
+      - name: GitHub'a Yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Yamali-OriginOS
+          path: Yamali-OriginOS.tar.gz
